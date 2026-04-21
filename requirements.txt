@@ -1,0 +1,7 @@
+# ALMs Demo — Python dependencies
+# Pinned to versions available on PythonAnywhere's Python 3.10+ images.
+# (PythonAnywhere hosts PyPI mirrors and supports all of these out of the box.)
+
+Flask>=2.3.0,<4.0.0
+openai>=1.14.0,<2.0.0
+python-dotenv>=1.0.0,<2.0.0

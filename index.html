@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ALMs – Authorial Language Models demo: authorship attribution via perplexity, with per-token CNLL visualisations (Huang, Murakami & Grieve, 2024).">
+  <title>ALMs — Authorship Attribution Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <h1>ALMs — Authorial Language Models</h1>
+      <p class="subtitle">
+        Authorship attribution via fine-tuned-LM perplexity ·
+        <a href="https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0327081"
+           target="_blank" rel="noopener">Huang, Murakami &amp; Grieve (2024/25)</a>
+      </p>
+    </header>
+
+    <!-- ─── API configuration ─────────────────────────────────────────── -->
+    <section class="card">
+      <h2>API configuration</h2>
+
+      <div class="field-group">
+        <label for="api-key">Your OpenAI-compatible API key</label>
+        <input
+          type="password"
+          id="api-key"
+          placeholder="sk-... (paste your API key here)"
+          autocomplete="off"
+          spellcheck="false">
+      </div>
+
+      <div class="field-group">
+        <label for="base-url">Base URL <span class="optional">(optional)</span></label>
+        <input
+          type="text"
+          id="base-url"
+          placeholder="https://api.openai.com/v1 (or your provider's endpoint)"
+          autocomplete="off"
+          spellcheck="false">
+      </div>
+
+      <p class="note">
+        Your key stays in your browser session and is only forwarded to the
+        model endpoint. It is never logged or stored on the server.
+      </p>
+    </section>
+
+    <!-- ─── Author slots ──────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Authorial model slots</h2>
+      <p class="info">
+        Each slot = one author's language model. The model whose perplexity
+        is <em>lowest</em> on the questioned text is the predicted author.
+        In this demo each slot is conditioned by a short public-domain style
+        primer (editable below); in a production ALMs pipeline each slot
+        would point at its own fine-tuned model.
+      </p>
+
+      <div id="author-slots"><!-- populated by script.js --></div>
+      <button class="btn-secondary" id="add-author" type="button">+ Add author</button>
+    </section>
+
+    <!-- ─── Questioned text ───────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Questioned text</h2>
+
+      <div class="demo-buttons">
+        <span class="demo-label">Load a public-domain sample:</span>
+        <button class="btn-demo" data-demo="austen"      type="button">Austen</button>
+        <button class="btn-demo" data-demo="doyle"       type="button">Doyle</button>
+        <button class="btn-demo" data-demo="twain"       type="button">Twain</button>
+        <button class="btn-demo" data-demo="shakespeare" type="button">Shakespeare</button>
+      </div>
+
+      <textarea
+        id="questioned-text"
+        rows="6"
+        placeholder="Paste the text you want to attribute here, or click a sample above…"></textarea>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="token-viz" checked>
+        <span>
+          <strong>Token-level analysis</strong> — score every word for the
+          color-coded text annotation and CNLL heatmap (Figs 2–4, 7 of the
+          paper). Slower: scales linearly with text length &amp; author count.
+        </span>
+      </label>
+    </section>
+
+    <!-- ─── Submit ────────────────────────────────────────────────────── -->
+    <div class="submit-wrap">
+      <button class="btn-primary" id="attribute-btn" type="button">Attribute authorship</button>
+    </div>
+
+    <!-- ─── Results ───────────────────────────────────────────────────── -->
+    <section class="card" id="results-section" hidden>
+      <h2>Results</h2>
+      <div id="results-content"></div>
+    </section>
+
+    <!-- ─── CNLL text annotation (Fig 2 / 4) ──────────────────────────── -->
+    <section class="card" id="annotation-section" hidden>
+      <h2>Token-level annotation (Fig 2 / 4)</h2>
+      <p class="info">
+        Each word is colored by its <em>CNLL</em> for the selected author:
+        <span class="legend-swatch cnll-for"></span> <em>blue</em> = evidence
+        <strong>for</strong> the author (CNLL&nbsp;&lt;&nbsp;0);
+        <span class="legend-swatch cnll-against"></span> <em>red</em> =
+        evidence <strong>against</strong> (CNLL&nbsp;&gt;&nbsp;0). Saturation
+        scales with |CNLL|. Hover a word to see its NLLs.
+      </p>
+      <div class="field-group" style="margin-bottom:0.85rem">
+        <label for="annotation-author">Color against:</label>
+        <select id="annotation-author"><!-- populated --></select>
+      </div>
+      <div id="annotation-text" class="annotation"></div>
+      <div class="cnll-scale">
+        <span>← evidence for author</span>
+        <span class="cnll-gradient"></span>
+        <span>evidence against →</span>
+      </div>
+    </section>
+
+    <!-- ─── CNLL heatmap (Fig 3 / 7) ──────────────────────────────────── -->
+    <section class="card" id="heatmap-section" hidden>
+      <h2>CNLL heatmap (Fig 3 / 7)</h2>
+      <p class="info">
+        Rows = tokens (top-to-bottom in reading order). Columns = candidate
+        authors, ordered by their overall rank (best on the left, highlighted
+        in red). Cells are colored by the word's CNLL for that author:
+        <strong>blue = evidence for</strong>, <strong>red = evidence
+        against</strong>. The bar chart below shows mean CNLL per author – a
+        large negative bar for the winner confirms the attribution is
+        token-supported, not driven by one or two outliers.
+      </p>
+      <div id="heatmap-container" class="heatmap-wrap"></div>
+      <div id="heatmap-mean"      class="heatmap-mean"></div>
+    </section>
+
+    <footer>
+      <p>
+        <code>PPL(M, Q) = exp{ −(1/T) Σ log P<sub>M</sub>(x<sub>i</sub> | x<sub>&lt;i</sub>) }</code>
+        · predicted author = <code>argmin PPL</code> · CNLL<sub>i</sub>(a) =
+        NLL<sub>i</sub>(a) − mean<sub>b≠a</sub> NLL<sub>i</sub>(b)
+      </p>
+      <p>
+        Sources:
+        <a href="https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0327081" target="_blank" rel="noopener">PLOS ONE</a> ·
+        <a href="https://arxiv.org/html/2401.12005v2" target="_blank" rel="noopener">arXiv&nbsp;2401.12005</a> ·
+        <a href="https://github.com/Weihang-Huang/ALMs" target="_blank" rel="noopener">reference code</a>
+      </p>
+    </footer>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
